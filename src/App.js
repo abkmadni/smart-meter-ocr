@@ -24,7 +24,7 @@ const MeterReadingApp = () => {
   const fileInputRef = useRef(null);
 
   // OCR.space API configuration
-  const OCR_API_KEY = '5ba586b11488957'; // Free API key - replace with your own
+  const OCR_API_KEY = process.env.REACT_APP_OCR_API_KEY || 'helloworld'; // Free API key - replace with your own
   const OCR_API_URL = 'https://api.ocr.space/parse/image';
 
   // Load data from memory storage on component mount
