@@ -326,6 +326,7 @@ const MeterReadingApp = () => {
   };
 
   const deleteMeter = (meterId) => {
+    // eslint-disable-next-line no-restricted-globals
     if (confirm('Are you sure you want to delete this meter and all its readings?')) {
       setMeters(prev => prev.filter(m => m.id !== meterId));
       setReadings(prev => prev.filter(r => r.meterId !== meterId));
