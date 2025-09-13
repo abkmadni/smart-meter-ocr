@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Camera, Settings, Plus, Trash2, Edit3, Save, X, Download, Upload, Loader2 } from 'lucide-react';
 
 const MeterReadingApp = () => {
@@ -17,11 +17,16 @@ const MeterReadingApp = () => {
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
   const [ocrError, setOcrError] = useState(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [message, setMessage] = useState({ text: '', type: '' });
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [confirmMessage, setConfirmMessage] = useState('');
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const fileInputRef = useRef(null);
+  const boundingBoxRef = useRef(null);
 
   // OCR.space API configuration
   const OCR_API_KEY = process.env.REACT_APP_OCR_API_KEY || 'helloworld'; // Free API key - replace with your own
@@ -51,6 +56,30 @@ const MeterReadingApp = () => {
     localStorage.setItem('meterReadings_resetDate', monthlyResetDate.toString());
   }, [monthlyResetDate]);
 
+  const showMessageBox = (text, type = 'info') => {
+    setMessage({ text, type });
+    setTimeout(() => setMessage({ text: '', type: '' }), 3000);
+  };
+
+  const showConfirmBox = (message, action) => {
+    setConfirmMessage(message);
+    setConfirmAction(() => action); // Use a function to store the action
+    setShowConfirm(true);
+  };
+
+  const handleConfirm = () => {
+    if (confirmAction) {
+      confirmAction();
+    }
+    setShowConfirm(false);
+    setConfirmAction(null);
+  };
+
+  const handleCancelConfirm = () => {
+    setShowConfirm(false);
+    setConfirmAction(null);
+  };
+
   const getCurrentResetPeriod = () => {
     const now = new Date();
     const currentMonth = now.getMonth();
@@ -73,7 +102,7 @@ const MeterReadingApp = () => {
   // Export readings to Excel format (CSV for simplicity on Vercel)
   const exportToExcel = () => {
     if (readings.length === 0) {
-      alert("No readings to export.");
+      showMessageBox("No readings to export.", "info");
       return;
     }
     
@@ -103,6 +132,7 @@ const MeterReadingApp = () => {
     a.download = 'meter_readings.csv';
     a.click();
     window.URL.revokeObjectURL(url);
+    showMessageBox("Readings exported to meter_readings.csv", "success");
   };
 
   // Import readings from CSV
@@ -146,9 +176,9 @@ const MeterReadingApp = () => {
         }).filter(Boolean);
         
         setReadings(prev => [...prev, ...importedReadings]);
-        alert(`Imported ${importedReadings.length} readings successfully!`);
+        showMessageBox(`Imported ${importedReadings.length} readings successfully!`, "success");
       } catch (error) {
-        alert('Error importing file. Please check the format.');
+        showMessageBox('Error importing file. Please check the format.', "error");
         console.error('Import error:', error);
       }
     };
@@ -168,7 +198,7 @@ const MeterReadingApp = () => {
       setIsCameraActive(true);
     } catch (err) {
       console.error('Error accessing camera:', err);
-      alert('Could not access camera. Please ensure camera permissions are granted.');
+      showMessageBox('Could not access camera. Please ensure camera permissions are granted.', "error");
     }
   };
 
@@ -244,15 +274,53 @@ const MeterReadingApp = () => {
   };
 
   const capturePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
+    if (videoRef.current && canvasRef.current && boundingBoxRef.current) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
       const context = canvas.getContext('2d');
+      const box = boundingBoxRef.current;
+
+      // Calculate video aspect ratio and scale
+      const videoRatio = video.videoWidth / video.videoHeight;
+      const displayRatio = box.offsetWidth / box.offsetHeight;
+
+      let scale = 1;
+      let videoX = 0;
+      let videoY = 0;
+      let videoWidth = video.videoWidth;
+      let videoHeight = video.videoHeight;
+
+      if (videoRatio > displayRatio) {
+        videoHeight = video.videoWidth / displayRatio;
+        videoY = (video.videoHeight - videoHeight) / 2;
+      } else {
+        videoWidth = video.videoHeight * displayRatio;
+        videoX = (video.videoWidth - videoWidth) / 2;
+      }
+
+      // Calculate crop coordinates based on the bounding box position
+      const boxRect = box.getBoundingClientRect();
+      const videoRect = video.getBoundingClientRect();
+
+      const cropX = (boxRect.left - videoRect.left) * (video.videoWidth / videoRect.width);
+      const cropY = (boxRect.top - videoRect.top) * (video.videoHeight / videoRect.height);
+      const cropWidth = boxRect.width * (video.videoWidth / videoRect.width);
+      const cropHeight = boxRect.height * (video.videoHeight / videoRect.height);
       
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      context.drawImage(video, 0, 0);
-      
+      // Set canvas size to match the cropped area
+      canvas.width = cropWidth;
+      canvas.height = cropHeight;
+
+      // Draw the cropped video portion onto the canvas
+      context.drawImage(
+        video, 
+        cropX, 
+        cropY, 
+        cropWidth, 
+        cropHeight,
+        0, 0, canvas.width, canvas.height
+      );
+
       const imageData = canvas.toDataURL('image/jpeg', 0.8);
       setCapturedImage(imageData);
       stopCamera();
@@ -264,7 +332,7 @@ const MeterReadingApp = () => {
 
   const saveReading = () => {
     if (!selectedMeter || !manualReading) {
-      alert('Please select a meter and provide a reading');
+      showMessageBox('Please select a meter and provide a reading', "error");
       return;
     }
 
@@ -284,17 +352,17 @@ const MeterReadingApp = () => {
     setSelectedMeter('');
     setOcrError(null);
     
-    alert('Reading saved successfully!');
+    showMessageBox('Reading saved successfully!', "success");
   };
 
   const addMeter = () => {
     if (!newMeterName.trim() || !newMeterNumber.trim()) {
-      alert('Please fill in both meter name and number');
+      showMessageBox('Please fill in both meter name and number', "error");
       return;
     }
     
     if (meters.some(m => m.number === newMeterNumber.trim())) {
-      alert('A meter with this number already exists');
+      showMessageBox('A meter with this number already exists', "error");
       return;
     }
     
@@ -326,11 +394,14 @@ const MeterReadingApp = () => {
   };
 
   const deleteMeter = (meterId) => {
-    // eslint-disable-next-line no-restricted-globals
-    if (confirm('Are you sure you want to delete this meter and all its readings?')) {
-      setMeters(prev => prev.filter(m => m.id !== meterId));
-      setReadings(prev => prev.filter(r => r.meterId !== meterId));
-    }
+    showConfirmBox(
+      'Are you sure you want to delete this meter and all its readings?', 
+      () => {
+        setMeters(prev => prev.filter(m => m.id !== meterId));
+        setReadings(prev => prev.filter(r => r.meterId !== meterId));
+        showMessageBox('Meter and all readings deleted successfully.', 'success');
+      }
+    );
   };
 
   const editMeter = (meter) => {
@@ -342,12 +413,12 @@ const MeterReadingApp = () => {
 
   const saveMeterEdit = (meterId) => {
     if (!newMeterName.trim() || !newMeterNumber.trim()) {
-      alert('Please fill in both meter name and number');
+      showMessageBox('Please fill in both meter name and number', "error");
       return;
     }
     
     if (meters.some(m => m.number === newMeterNumber.trim() && m.id !== meterId)) {
-      alert('A meter with this number already exists');
+      showMessageBox('A meter with this number already exists', "error");
       return;
     }
     
@@ -363,20 +434,30 @@ const MeterReadingApp = () => {
     setNewMeterName('');
     setNewMeterNumber('');
     setNewMeterLastReading('');
+    showMessageBox('Meter updated successfully.', 'success');
   };
 
-  const getConsumptionForMeter = (meterId) => {
-    const resetDate = getCurrentResetPeriod();
+  const getMonthlyConsumption = (meterId) => {
     const meterReadings = readings
-      .filter(r => r.meterId === meterId && new Date(r.date) >= resetDate)
+      .filter(r => r.meterId === meterId)
       .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    if (meterReadings.length < 2) return 0;
+    if (meterReadings.length === 0) return 0;
     
-    const latest = meterReadings[meterReadings.length - 1];
-    const earliest = meterReadings[0];
+    const latestReading = meterReadings[meterReadings.length - 1];
     
-    return (latest.reading - earliest.reading).toFixed(2);
+    const resetDate = getCurrentResetPeriod();
+    let previousMonthReading = meters.find(m => m.id === meterId)?.lastMonthReading || 0;
+
+    // Find the latest reading before the current reset period
+    for (let i = meterReadings.length - 1; i >= 0; i--) {
+      if (new Date(meterReadings[i].date) < resetDate) {
+        previousMonthReading = meterReadings[i].reading;
+        break;
+      }
+    }
+
+    return (latestReading.reading - previousMonthReading).toFixed(2);
   };
 
   const getLatestReadingForMeter = (meterId) => {
@@ -386,6 +467,24 @@ const MeterReadingApp = () => {
     
     return meterReadings[0] || null;
   };
+  
+  const getConsumptionSinceLastReading = (currentReading) => {
+    const meterReadings = readings
+      .filter(r => r.meterId === currentReading.meterId)
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const currentIndex = meterReadings.findIndex(r => r.id === currentReading.id);
+    if (currentIndex === -1 || currentIndex === meterReadings.length - 1) {
+      return null; // This is the first reading for this meter
+    }
+    const previousReading = meterReadings[currentIndex + 1];
+    return (currentReading.reading - previousReading.reading).toFixed(2);
+  };
+
+  const selectedMeterConsumption = useMemo(() => {
+    if (!selectedMeter) return null;
+    return getMonthlyConsumption(selectedMeter);
+  }, [selectedMeter, readings, monthlyResetDate]);
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 font-sans">
@@ -404,7 +503,42 @@ const MeterReadingApp = () => {
           <p className="text-blue-100 text-sm mt-1">
             Reset Date: {monthlyResetDate}th of each month
           </p>
+          <p className="text-blue-100 text-sm font-semibold mt-1">
+            {selectedMeterConsumption !== null
+              ? `This month: +${selectedMeterConsumption} kWh`
+              : 'Select a meter to view consumption'}
+          </p>
         </div>
+
+        {/* Message Box */}
+        {message.text && (
+          <div className={`p-3 text-sm text-center ${message.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+            {message.text}
+          </div>
+        )}
+
+        {/* Confirmation Modal */}
+        {showConfirm && (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm">
+              <p className="text-lg font-semibold mb-4">{confirmMessage}</p>
+              <div className="flex justify-end gap-2">
+                <button 
+                  onClick={handleCancelConfirm} 
+                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleConfirm} 
+                  className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Settings Panel */}
         {showSettings && (
@@ -582,7 +716,7 @@ const MeterReadingApp = () => {
                         Latest: {getLatestReadingForMeter(meter.id)?.reading || 'N/A'} kWh
                       </p>
                       <p className="text-sm text-green-600 font-medium">
-                        This month: +{getConsumptionForMeter(meter.id)} kWh
+                        This month: +{getMonthlyConsumption(meter.id)} kWh
                       </p>
                     </div>
                     <div className="flex gap-1">
@@ -653,37 +787,46 @@ const MeterReadingApp = () => {
               </div>
             </div>
           ) : (
-            <div>
+            <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-gray-200">
               <video 
                 ref={videoRef} 
                 autoPlay 
                 playsInline 
-                className="w-full rounded mb-4 bg-gray-200" 
+                className="w-full h-full object-cover" 
                 style={{ display: isCameraActive ? 'block' : 'none' }} 
               />
               <canvas ref={canvasRef} style={{ display: 'none' }} />
               
-              <div className="flex gap-2 mb-4">
+              {isCameraActive && (
+                <div 
+                  ref={boundingBoxRef}
+                  className="absolute inset-0 flex items-center justify-center pointer-events-none"
+                >
+                  <div className="w-11/12 h-1/4 border-2 border-dashed border-yellow-400 rounded-lg" />
+                </div>
+              )}
+              
+              <div className="absolute inset-x-0 bottom-4 flex justify-center px-4">
                 {!isCameraActive ? (
                   <button 
                     onClick={startCamera} 
-                    className="flex-1 bg-blue-600 text-white py-2 rounded flex items-center justify-center gap-2 hover:bg-blue-700"
+                    className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-full shadow-lg flex items-center justify-center gap-2 hover:bg-blue-700"
                   >
                     <Camera className="w-4 h-4" /> Start Camera
                   </button>
                 ) : (
                   <button 
                     onClick={capturePhoto} 
-                    className="flex-1 bg-green-600 text-white py-2 rounded hover:bg-green-700"
+                    className="w-16 h-16 bg-white rounded-full flex items-center justify-center border-4 border-white shadow-lg hover:ring-4 hover:ring-blue-500 transition-all duration-200"
                   >
-                    Capture & Read
+                    <div className="w-10 h-10 bg-blue-600 rounded-full" />
                   </button>
                 )}
               </div>
             </div>
           )}
 
-          <div className="mb-4">
+          <div className="mb-4 mt-6">
             <label className="block text-sm font-medium mb-1">Meter Reading (kWh)</label>
             <input 
               type="number" 
@@ -713,6 +856,7 @@ const MeterReadingApp = () => {
               .slice(0, 10)
               .map(reading => {
                 const meter = meters.find(m => parseInt(m.id) === parseInt(reading.meterId));
+                const consumption = getConsumptionSinceLastReading(reading);
                 return (
                   <div key={reading.id} className="p-2 bg-gray-50 rounded text-sm">
                     <div className="flex justify-between items-start">
@@ -729,6 +873,11 @@ const MeterReadingApp = () => {
                     </div>
                     <div className="text-gray-600 text-xs">
                       {new Date(reading.date).toLocaleString()}
+                      {consumption !== null && (
+                        <span className="ml-2 text-green-600 font-medium">
+                          (+{consumption} kWh since last reading)
+                        </span>
+                      )}
                     </div>
                   </div>
                 );
