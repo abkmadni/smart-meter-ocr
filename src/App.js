@@ -326,7 +326,6 @@ const MeterReadingApp = () => {
   };
 
   const deleteMeter = (meterId) => {
-    // eslint-disable-next-line no-restricted-globals
     if (confirm('Are you sure you want to delete this meter and all its readings?')) {
       setMeters(prev => prev.filter(m => m.id !== meterId));
       setReadings(prev => prev.filter(r => r.meterId !== meterId));
@@ -712,13 +711,13 @@ const MeterReadingApp = () => {
               .sort((a, b) => new Date(b.date) - new Date(a.date))
               .slice(0, 10)
               .map(reading => {
-                const meter = meters.find(m => m.id === reading.meterId);
+                const meter = meters.find(m => parseInt(m.id) === parseInt(reading.meterId));
                 return (
                   <div key={reading.id} className="p-2 bg-gray-50 rounded text-sm">
                     <div className="flex justify-between items-start">
                       <div>
                         <span className="font-medium">{meter?.name || 'Unknown'}</span>
-                        <span className="text-xs text-gray-500 ml-1">#{meter?.number}</span>
+                        <span className="text-xs text-gray-500 ml-1">#{meter?.number || 'N/A'}</span>
                         {reading.isInitialReading && (
                           <span className="text-xs bg-blue-100 text-blue-800 px-1 rounded ml-1">
                             Initial
